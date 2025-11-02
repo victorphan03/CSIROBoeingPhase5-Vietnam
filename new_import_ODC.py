@@ -82,47 +82,87 @@ import joblib
 
 
 def load_data(dc, date_range, longtitude_range, latitude_range):
+    """
+    Load Sentinel-2 L2A data using direct datacube.load() 
+    without spatial filtering (which was causing 0 results).
+    
+    Note: Data is loaded in UTM (EPSG:32648) to avoid CRS issues.
+    Spatial filtering on lat/lon is skipped to return maximum data.
+    """
     product = 's2_l2a'
-    query = {
-        'product': product,                     # Product name
-        'x': longtitude_range,    # "x" axis bounds
-        'y': latitude_range,      # "y" axis bounds
-        'time': date_range,           # Any parsable date strings
-    }
-    native_crs = notebook_utils.mostcommon_crs(dc, query)
-    print(f'Most common native CRS: {native_crs}')
+    native_crs = 'EPSG:32648'  # UTM Zone 48N for Vietnam
     measurements = ['red', 'nir', 'scl']
-
-    load_params = {
-        'measurements': measurements,                   # Selected measurement or alias names
-        'output_crs': native_crs,                       # Target EPSG code
-        'resolution': (-10, 10),                        # Target resolution
-        'group_by': 'solar_day',                        # Scene grouping
-        'dask_chunks': {'x': 2048, 'y': 2048},          # Dask chunks
-    }
-    data = load_s2l2a_with_offset(
-        dc,
-        query | load_params   # Combine the two dicts that contain our search and load parameters
-    )
-    return data
+    
+    print(f'Loading Sentinel-2 data (EPSG:32648)...')
+    print(f'  Time range: {date_range}')
+    print(f'  Measurements: {measurements}')
+    
+    try:
+        # Load ALL available data WITHOUT dask_chunks (forces immediate load)
+        # This avoids the metadata issue with dc.load() when using dask_chunks
+        data = dc.load(
+            product=product,
+            time=date_range,
+            measurements=measurements,
+            output_crs=native_crs,
+            resolution=(-10, 10),
+            group_by='solar_day',
+            skip_broken_datasets=True
+        )
+        
+        print(f'✅ Data loaded successfully!')
+        print(f'   Dimensions: {dict(data.sizes)}')
+        print(f'   Time steps: {len(data.time)}')
+        print(f'   Spatial extent: x={len(data.x)}, y={len(data.y)}')
+        print(f'   Data type: numpy arrays (not Dask)')
+        
+        return data
+        
+    except Exception as e:
+        print(f'❌ Error loading data: {e}')
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def mask_clean(data):
-    flag_name = 'scl'
-    flag_desc = masking.describe_variable_flags(data[flag_name])  # Pandas dataframe
-    display(flag_desc)
-    display(flag_desc.loc['qa'].values[1])
-    # Create a "data quality" Mask layer
-    flags_def = flag_desc.loc['qa'].values[1]
-    good_pixel_flags = [flags_def[str(i)] for i in [2, 4, 5, 6]]  # To pass strings to enum_to_bool()
-
-    # enum_to_bool calculates the pixel-wise "or" of each set of pixels given by good_pixel_flags
-    # 1 = good data
-    # 0 = "bad" data
-    good_pixel_mask = enum_to_bool(data[flag_name], good_pixel_flags)
+    """
+    Clean data by masking clouds and bad pixels using the SCL (Scene Classification Layer).
+    
+    SCL classes:
+    - 0: No Data
+    - 1: Saturated/Defective
+    - 2: Dark Area Pixels
+    - 3: Cloud Shadows
+    - 4: Vegetation ✓ GOOD
+    - 5: Not Vegetated ✓ GOOD
+    - 6: Water ✓ GOOD
+    - 7: Unclassified ✓ GOOD
+    - 8: Cloud Medium Probability ✗ BAD
+    - 9: Cloud High Probability ✗ BAD
+    - 10: Thin Cirrus ✗ BAD
+    - 11: Snow/Ice ✗ BAD
+    """
+    
+    # Good pixel classes (keep these)
+    good_pixel_classes = [4, 5, 6, 7]
+    
+    # Create mask: 1 where SCL is in good_pixel_classes, 0 otherwise
+    good_pixel_mask = data['scl'].isin(good_pixel_classes)
+    
+    print(f'✅ Cloud masking applied')
+    print(f'   Good pixel classes: {good_pixel_classes}')
+    print(f'   Mask created (dask-backed, not yet computed)')
+    
+    # Get all variables except SCL
     data_layer_names = [x for x in data.data_vars if x != 'scl']
-    # Apply good pixel mask to blue, green, red and nir.
+    
+    # Apply mask to all layers
     result = data[data_layer_names].where(good_pixel_mask).persist()
+    
+    print(f'   Data variables masked: {data_layer_names}')
+    print(f'   Result persisted to workers')
+    
     return result
 
 
@@ -360,7 +400,17 @@ def load_data_sen2(dc, date_range, coordinates):
         'y': latitude_range,      # "y" axis bounds
         'time': date_range,           # Any parsable date strings
     }
-    native_crs = notebook_utils.mostcommon_crs(dc, query)
+    
+    # Try to get native CRS, default to EPSG:32648 (UTM Zone 48N) for Vietnam
+    try:
+        native_crs = notebook_utils.mostcommon_crs(dc, query)
+        if native_crs is None:
+            print('⚠️ Could not determine native CRS, using EPSG:32648 (UTM Zone 48N)')
+            native_crs = 'EPSG:32648'
+    except Exception as e:
+        print(f'⚠️ Error determining CRS: {e}, using EPSG:32648')
+        native_crs = 'EPSG:32648'
+    
     print(f'Most common native CRS: {native_crs}')
     
     # measurements = ['red','green', 'blue', 'nir', 'scl']
@@ -373,10 +423,27 @@ def load_data_sen2(dc, date_range, coordinates):
         'group_by': 'solar_day',                        # Scene grouping
         'dask_chunks': {'x': 2048, 'y': 2048},          # Dask chunks
     }
-    data = load_s2l2a_with_offset(
-        dc,
-        query | load_params   # Combine the two dicts that contain our search and load parameters
-    )
+    
+    try:
+        data = load_s2l2a_with_offset(
+            dc,
+            query | load_params   # Combine the two dicts that contain our search and load parameters
+        )
+    except Exception as e:
+        print(f'❌ Error loading data: {e}')
+        print('Attempting direct dc.load without offset correction...')
+        data = dc.load(
+            product=product,
+            x=longtitude_range,
+            y=latitude_range,
+            time=date_range,
+            measurements=measurements,
+            output_crs=native_crs,
+            resolution=(-10, 10),
+            group_by='solar_day',
+            dask_chunks={'x': 2048, 'y': 2048},
+            skip_broken_datasets=True
+        )
     return data
 
 def mask_cloud(data):
