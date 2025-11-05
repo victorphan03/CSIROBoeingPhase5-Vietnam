@@ -81,6 +81,105 @@ from sklearn.metrics import mean_squared_error, r2_score
 import joblib
 
 
+def load_data_from_rasterio(dc, date_range, longtitude_range, latitude_range):
+    """
+    Load Sentinel-2 L2A data directly from S3 COGs using rasterio.
+    Returns a xarray Dataset with 10980x10980 resolution data.
+    
+    This approach:
+    - Loads ALL available data without spatial filtering
+    - Uses direct S3 COG access (rasterio) for reliability
+    - Returns data at native 10m resolution
+    - Matches the pipeline's downstream processing requirements
+    """
+    
+    print(f'Loading Sentinel-2 data from S3 COGs (rasterio)...')
+    print(f'  Date range: {date_range}')
+    print(f'  Target area: Lon {longtitude_range}, Lat {latitude_range}')
+    
+    try:
+        # Get first matching scene
+        datasets = list(dc.find_datasets(
+            product='s2_l2a',
+            time=date_range
+        ))
+        
+        if not datasets:
+            print(f'❌ No datasets found for date range {date_range}')
+            return None
+            
+        selected = datasets[0]
+        print(f'\n📦 Using scene: {selected.metadata.label}')
+        
+        # Load measurements from S3 COGs
+        measurements_to_load = ['red', 'green', 'blue', 'nir', 'scl']
+        data_dict = {}
+        
+        print(f'\n⏳ Loading bands from S3 COGs...')
+        for band_name in measurements_to_load:
+            if band_name in selected.measurements:
+                band_path = selected.measurements[band_name]['path']
+                
+                try:
+                    with rasterio.open(band_path) as src:
+                        data = src.read(1)
+                        data_dict[band_name] = data
+                        print(f'   ✅ {band_name}: {data.shape}, dtype={data.dtype}')
+                except Exception as e:
+                    print(f'   ⚠️ Could not load {band_name}: {e}')
+        
+        if not data_dict:
+            print('❌ Could not load any bands')
+            return None
+        
+        # Create xarray Dataset
+        print(f'\n🔄 Converting to xarray Dataset...')
+        
+        # Get dimensions from red band (highest resolution)
+        red_data = data_dict['red']
+        y_size, x_size = red_data.shape
+        
+        # Create coordinate arrays (placeholder - real georeferencing would come from rasterio metadata)
+        y_coords = np.arange(y_size)
+        x_coords = np.arange(x_size)
+        
+        # Create data arrays for each variable
+        data_vars = {}
+        for band_name, band_data in data_dict.items():
+            if band_data.shape == red_data.shape:
+                # Same resolution - direct assignment
+                data_vars[band_name] = (['y', 'x'], band_data)
+            else:
+                # Different resolution (e.g., SCL at 20m) - resample to match red
+                from scipy import ndimage
+                scale_factor = red_data.shape[0] // band_data.shape[0]
+                resampled = ndimage.zoom(band_data, scale_factor, order=0)
+                data_vars[band_name] = (['y', 'x'], resampled)
+        
+        # Create xarray Dataset
+        data = xr.Dataset(
+            data_vars,
+            coords={
+                'x': x_coords,
+                'y': y_coords
+            }
+        )
+        
+        print(f'\n✅ Data converted successfully!')
+        print(f'   Dimensions: {dict(data.sizes)}')
+        print(f'   Variables: {list(data.data_vars)}')
+        print(f'   Shape: {red_data.shape}')
+        print(f'   Data type: numpy arrays (in-memory)')
+        
+        return data
+        
+    except Exception as e:
+        print(f'❌ Error loading data: {e}')
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def load_data(dc, date_range, longtitude_range, latitude_range):
     """
     Load Sentinel-2 L2A data using direct datacube.load() 
