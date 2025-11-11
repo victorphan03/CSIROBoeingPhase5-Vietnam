@@ -1,0 +1,221 @@
+# Requirements for Local PyTorch Training
+
+## Python Version
+- Python >= 3.8
+
+## Core Dependencies
+
+### PyTorch (chọn một trong các tùy chọn dưới)
+
+#### Option 1: CPU Only
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+```
+
+#### Option 2: GPU (CUDA 11.8)
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```
+
+#### Option 3: GPU (CUDA 12.1)
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+#### Option 4: Apple Silicon (M1/M2/M3)
+```bash
+pip install torch torchvision torchaudio
+```
+
+### Data Processing
+```bash
+pip install numpy>=1.21.0
+pip install xarray>=0.20.0
+pip install netcdf4>=1.5.0
+pip install geopandas>=0.10.0
+pip install shapely>=1.7.0
+pip install fiona>=1.8.0
+```
+
+### Machine Learning
+```bash
+pip install scikit-learn>=1.0.0
+```
+
+### Visualization
+```bash
+pip install matplotlib>=3.4.0
+```
+
+### GIS (optional, for GeoTIFF export)
+```bash
+pip install rasterio>=1.2.0
+pip install rasterio[s3]  # Nếu cần S3 access
+```
+
+### Utils
+```bash
+pip install joblib>=1.0.0
+```
+
+---
+
+## Installation Instructions
+
+### 1. Create Virtual Environment
+```bash
+# Using venv
+python -m venv pytorch_env
+source pytorch_env/bin/activate  # On Windows: pytorch_env\Scripts\activate
+
+# Or using conda
+conda create -n pytorch_env python=3.10
+conda activate pytorch_env
+```
+
+### 2. Install PyTorch (choose ONE)
+
+**For GPU (recommended)**:
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```
+
+**For CPU only** (if no GPU):
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+```
+
+### 3. Install Other Dependencies
+```bash
+pip install numpy xarray netcdf4 geopandas shapely fiona
+pip install scikit-learn matplotlib
+pip install rasterio
+pip install joblib
+```
+
+### 4. Verify Installation
+```bash
+python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'GPU available: {torch.cuda.is_available()}')"
+```
+
+---
+
+## Complete Installation Script
+
+### Linux/Mac:
+```bash
+#!/bin/bash
+
+# Create virtual environment
+python -m venv pytorch_env
+source pytorch_env/bin/activate
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Install PyTorch (GPU)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Install dependencies
+pip install numpy xarray netcdf4 geopandas shapely fiona scikit-learn matplotlib rasterio joblib
+
+echo "✅ Installation complete!"
+```
+
+### Windows:
+```bash
+# Create virtual environment
+python -m venv pytorch_env
+pytorch_env\Scripts\activate
+
+# Upgrade pip
+python -m pip install --upgrade pip
+
+# Install PyTorch (GPU)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Install dependencies
+pip install numpy xarray netcdf4 geopandas shapely fiona scikit-learn matplotlib rasterio joblib
+
+echo Installation complete!
+```
+
+---
+
+## Quick Test
+
+```python
+import torch
+import numpy as np
+import xarray as xr
+import geopandas as gpd
+
+print(f"✅ PyTorch: {torch.__version__}")
+print(f"✅ GPU available: {torch.cuda.is_available()}")
+print(f"✅ NumPy: {np.__version__}")
+print(f"✅ xarray: {xr.__version__}")
+print(f"✅ GeoPandas: {gpd.__version__}")
+
+# GPU test
+if torch.cuda.is_available():
+    x = torch.randn(3, 4).cuda()
+    print(f"✅ GPU test passed! ({torch.cuda.get_device_name(0)})")
+```
+
+---
+
+## System Requirements
+
+### Minimum:
+- RAM: 8GB
+- Disk: 5GB (for data + model)
+- Processor: Any modern CPU
+
+### Recommended:
+- RAM: 16GB
+- Disk: 10GB
+- GPU: NVIDIA (CUDA) or AMD (ROCm)
+
+### GPU Support:
+- **NVIDIA**: CUDA 11.8+ with cuDNN 8.0+
+- **AMD**: ROCm 5.0+
+- **Apple**: Metal Performance Shaders (automatic)
+
+---
+
+## Troubleshooting
+
+### Issue 1: GPU not recognized
+```
+GPU available: False
+```
+**Solution**:
+- Check NVIDIA drivers: `nvidia-smi`
+- Reinstall PyTorch with correct CUDA version
+- Verify CUDA compatibility
+
+### Issue 2: Import errors
+```
+ModuleNotFoundError: No module named 'torch'
+```
+**Solution**:
+- Check virtual environment is activated
+- Reinstall: `pip install torch --force-reinstall`
+
+### Issue 3: Out of memory
+**Solution**:
+- Use CPU instead: `device = torch.device('cpu')`
+- Reduce batch_size in notebooks
+- Reduce model complexity
+
+---
+
+## Next Steps
+
+1. ✅ Install dependencies using one of the methods above
+2. ✅ Run verification script
+3. ✅ Download data from server
+4. ✅ Run `02.train_CNN_PyTorch_local.ipynb`
+5. ✅ Run `03.predict_CNN_PyTorch_local.ipynb`
+
+Happy training! 🚀
